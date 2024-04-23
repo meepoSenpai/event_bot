@@ -4,6 +4,7 @@ use crate::structs::client_structs::{
 use poise;
 use poise::serenity_prelude::CreateEmbed;
 use poise::serenity_prelude::CreateMessage;
+use uuid::Uuid;
 
 /// Create an Event
 #[poise::command(slash_command, prefix_command)]
@@ -48,5 +49,27 @@ pub async fn list_events(ctx: Context<'_>) -> Result<(), Error> {
             .unwrap();
         event.add_event_message(event_message);
     }
+    Ok(())
+}
+
+/// Signup for an event
+#[poise::command(slash_command, prefix_command)]
+pub async fn sign_up(ctx: Context<'_>, event_uid: String, role: String) -> Result<(), Error> {
+    let event_id = Uuid::parse_str(event_uid.as_str()).unwrap();
+    let mut event_data = ctx.serenity_context().data.write().await;
+    if let Some(event) = event_data
+        .get_mut::<EventData>()
+        .unwrap()
+        .iter_mut()
+        .find(|event| event.id == event_id)
+    {
+        if event
+            .add_participant(ctx.author().clone(), role, String::from(""))
+            .is_ok()
+        {
+            event.update_event_messages(ctx.http()).await;
+        }
+    }
+
     Ok(())
 }

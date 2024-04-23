@@ -1,6 +1,8 @@
 use chrono;
 use chrono::DateTime;
-use poise::serenity_prelude::{self as serenity, CacheHttp, EditMessage, GuildId, Message};
+use poise::serenity_prelude::{
+    self as serenity, CacheHttp, CreateEmbed, EditMessage, GuildId, Message,
+};
 use serenity::model::user::User;
 use uuid::Uuid;
 
@@ -53,7 +55,11 @@ impl Event {
     }
 
     pub async fn update_event_messages(&mut self, http: &impl CacheHttp) {
-        let message = EditMessage::new().content(self.build_new_message());
+        let message = EditMessage::new().embed(
+            CreateEmbed::new()
+                .title(&self.title)
+                .description(self.build_new_message()),
+        );
         for l in self
             .event_messages
             .iter_mut()
@@ -82,27 +88,56 @@ impl Event {
 
         format!(
             "\n
-        Title: {}\n
+        ID: {}\n
         Needed Roles:\n
         {}
         ",
-            self.title,
+            self.id,
             role_strings.join("\n")
         )
+    }
+
+    pub fn add_participant(
+        &mut self,
+        user: User,
+        role: String,
+        flavor: String,
+    ) -> Result<(), &str> {
+        let user_role = match self.needed_roles.iter().find(|rl| rl.name == role) {
+            Some(rl) => rl.clone(),
+            None => return Err("No role with that name found."),
+        };
+        let user_flavor = match self.needed_flavors.iter().find(|flv| flv.flavor == flavor) {
+            Some(flv) => Some(flv.clone()),
+            None => {
+                if !flavor.is_empty() {
+                    return Err("No flavor with that name found.");
+                }
+                None
+            }
+        };
+        self.participants.push(Participant {
+            id: user,
+            role: user_role,
+            flavor: user_flavor,
+        });
+        Ok(())
     }
 }
 
 pub struct Participant {
     pub id: User,
     pub role: Role,
-    pub flavor: RoleFlavor,
+    pub flavor: Option<RoleFlavor>,
 }
 
+#[derive(Clone)]
 pub struct Role {
     pub name: String,
     pub amount: u32,
 }
 
+#[derive(Clone)]
 pub struct RoleFlavor {
     pub flavor: String,
     pub amount: u32,
