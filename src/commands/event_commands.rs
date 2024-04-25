@@ -69,12 +69,16 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
             .cloned()
             .collect::<Vec<Event>>()
     };
+    if events_on_server.is_empty() {
+        ctx.say("There are no events to sign up for.").await?;
+        return Ok(());
+    }
+    ctx.say("Select an event to sign up to").await?;
     let message = ctx
         .channel_id()
         .send_message(
             ctx.http(),
             CreateMessage::new()
-                .content("\nPlease Pick a Event to sign up to")
                 .select_menu(CreateSelectMenu::new(
                     "event_select",
                     CreateSelectMenuKind::String {
@@ -160,5 +164,80 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
             event.update_event_messages(ctx.http()).await;
         }
     }
+    Ok(())
+}
+
+/// Sign off from an event
+#[poise::command(slash_command, prefix_command)]
+pub async fn sign_off(ctx: Context<'_>) -> Result<(), Error> {
+    let events_on_server = {
+        let event_data = ctx.serenity_context().data.read().await;
+        event_data
+            .get::<EventData>()
+            .unwrap()
+            .iter()
+            .filter(|ev| ev.server_id() == ctx.guild_id().unwrap())
+            .filter(|ev| ev.contains_participant(ctx.author()))
+            .cloned()
+            .collect::<Vec<Event>>()
+    };
+    if events_on_server.is_empty() {
+        ctx.say("You are not signed up for any events.").await?;
+        return Ok(());
+    }
+    let message = ctx
+        .channel_id()
+        .send_message(
+            ctx.http(),
+            CreateMessage::new()
+                .content("\nPlease Pick an Event to sign off from")
+                .select_menu(CreateSelectMenu::new(
+                    "event_select",
+                    CreateSelectMenuKind::String {
+                        options: events_on_server
+                            .iter()
+                            .cloned()
+                            .map(|ev| CreateSelectMenuOption::new(ev.title, ev.id.to_string()))
+                            .collect(),
+                    },
+                ))
+                .flags(MessageFlags::EPHEMERAL),
+        )
+        .await
+        .unwrap();
+    let interaction = message
+        .await_component_interaction(&ctx.serenity_context().shard)
+        .timeout(Duration::from_secs(30))
+        .await
+        .unwrap();
+    let event_selection = match &interaction.data.kind {
+        ComponentInteractionDataKind::StringSelect { values } => String::from(&values[0]),
+        _ => panic!("unexpected interaction data kind"),
+    };
+    message.delete(&ctx).await.unwrap();
+    if let Some(event_data) = ctx
+        .serenity_context()
+        .data
+        .write()
+        .await
+        .get_mut::<EventData>()
+    {
+        if let Some(event) = event_data
+            .iter_mut()
+            .find(|ev| ev.id.to_string() == event_selection)
+        {
+            event.remove_participant(ctx.author().clone()).unwrap();
+            event.update_event_messages(ctx.http()).await;
+        }
+    }
+    ctx.channel_id()
+        .send_message(
+            ctx.http(),
+            CreateMessage::new()
+                .content("You have been removed from the event.")
+                .flags(MessageFlags::EPHEMERAL),
+        )
+        .await
+        .unwrap();
     Ok(())
 }

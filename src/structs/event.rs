@@ -97,7 +97,7 @@ impl Event {
         ",
             self.date.day(),
             self.date.month(),
-            self.participants.iter().count(),
+            self.participants.len(),
             self.needed_roles
                 .iter()
                 .map(|role| role.amount)
@@ -131,6 +131,20 @@ impl Event {
             flavor: user_flavor,
         });
         Ok(())
+    }
+
+    pub fn remove_participant(&mut self, user: User) -> Result<(), &str> {
+        let index = self
+            .participants
+            .iter()
+            .position(|x| x.id.id == user.id)
+            .ok_or("User not found.")?;
+        self.participants.remove(index);
+        Ok(())
+    }
+
+    pub fn contains_participant(&self, user: &User) -> bool {
+        self.participants.iter().any(|x| x.id.id == user.id)
     }
 
     pub fn roles(&self) -> Vec<String> {
