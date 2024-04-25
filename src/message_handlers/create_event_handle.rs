@@ -69,11 +69,7 @@ pub async fn handle(
             .guild_id,
     );
     match extract_role(private_channel.id, ctx, Some(())).await {
-        Some(role) => {
-            let to_print = format!("Role {} extracted, need {}.", role.name, role.amount);
-            println!("{}", to_print);
-            event.add_role(role)
-        }
+        Some(role) => event.add_role(role),
         None => return,
     }
     while let Some(role) = extract_role(private_channel.id, ctx, None).await {

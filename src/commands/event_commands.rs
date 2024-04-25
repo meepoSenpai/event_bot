@@ -1,10 +1,14 @@
+use std::time::Duration;
+
 use crate::structs::client_structs::{
     Command, Context, Error, EventData, Invocation, InvocationData,
 };
+use crate::structs::event::Event;
 use poise;
-use poise::serenity_prelude::CreateEmbed;
-use poise::serenity_prelude::CreateMessage;
-use uuid::Uuid;
+use poise::serenity_prelude::{ComponentInteractionDataKind, CreateEmbed, MessageFlags};
+use poise::serenity_prelude::{
+    CreateMessage, CreateSelectMenu, CreateSelectMenuKind, CreateSelectMenuOption,
+};
 
 /// Create an Event
 #[poise::command(slash_command, prefix_command)]
@@ -54,22 +58,107 @@ pub async fn list_events(ctx: Context<'_>) -> Result<(), Error> {
 
 /// Signup for an event
 #[poise::command(slash_command, prefix_command)]
-pub async fn sign_up(ctx: Context<'_>, event_uid: String, role: String) -> Result<(), Error> {
-    let event_id = Uuid::parse_str(event_uid.as_str()).unwrap();
-    let mut event_data = ctx.serenity_context().data.write().await;
-    if let Some(event) = event_data
-        .get_mut::<EventData>()
+pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
+    let events_on_server = {
+        let event_data = ctx.serenity_context().data.read().await;
+        event_data
+            .get::<EventData>()
+            .unwrap()
+            .iter()
+            .filter(|ev| ev.server_id() == ctx.guild_id().unwrap())
+            .cloned()
+            .collect::<Vec<Event>>()
+    };
+    let message = ctx
+        .channel_id()
+        .send_message(
+            ctx.http(),
+            CreateMessage::new()
+                .content("\nPlease Pick a Event to sign up to")
+                .select_menu(CreateSelectMenu::new(
+                    "event_select",
+                    CreateSelectMenuKind::String {
+                        options: events_on_server
+                            .iter()
+                            .map(|ev| {
+                                CreateSelectMenuOption::new(ev.title.clone(), ev.id.to_string())
+                            })
+                            .collect(),
+                    },
+                ))
+                .flags(MessageFlags::EPHEMERAL),
+        )
+        .await
+        .unwrap();
+    let interaction = message
+        .await_component_interaction(&ctx.serenity_context().shard)
+        .timeout(Duration::from_secs(30))
+        .await
+        .unwrap();
+    let event_selection = match &interaction.data.kind {
+        ComponentInteractionDataKind::StringSelect { values } => String::from(&values[0]),
+        _ => panic!("unexpected interaction data kind"),
+    };
+    message.delete(&ctx).await.unwrap();
+    let possible_roles = events_on_server
+        .iter()
+        .find(|ev| ev.id.to_string() == event_selection)
         .unwrap()
-        .iter_mut()
-        .find(|event| event.id == event_id)
+        .roles();
+    let message = ctx
+        .channel_id()
+        .send_message(
+            ctx.http(),
+            CreateMessage::new()
+                .content("Please Pick a Role for the event")
+                .select_menu(CreateSelectMenu::new(
+                    "role_select",
+                    CreateSelectMenuKind::String {
+                        options: possible_roles
+                            .iter()
+                            .map(|rl| CreateSelectMenuOption::new(rl, rl))
+                            .collect(),
+                    },
+                ))
+                .flags(MessageFlags::EPHEMERAL),
+        )
+        .await
+        .unwrap();
+    let interaction = message
+        .await_component_interaction(&ctx.serenity_context().shard)
+        .timeout(Duration::from_secs(30))
+        .await
+        .unwrap();
+    let role_selection = match &interaction.data.kind {
+        ComponentInteractionDataKind::StringSelect { values } => String::from(&values[0]),
+        _ => panic!("unexpected interaction data kind"),
+    };
+    message.delete(&ctx).await.unwrap();
+    ctx.channel_id()
+        .send_message(
+            ctx.http(),
+            CreateMessage::new()
+                .content("Thank you for signing up! We'll handle the rest.")
+                .flags(MessageFlags::URGENT),
+        )
+        .await
+        .unwrap();
+    if let Some(event_data) = ctx
+        .serenity_context()
+        .data
+        .write()
+        .await
+        .get_mut::<EventData>()
     {
-        if event
-            .add_participant(ctx.author().clone(), role, String::from(""))
-            .is_ok()
+        if let Some(event) = event_data
+            .iter_mut()
+            .find(|ev| ev.id.to_string() == event_selection)
         {
+            event
+                .add_participant(ctx.author().clone(), role_selection, String::from(""))
+                .unwrap();
             event.update_event_messages(ctx.http()).await;
         }
     }
-
     Ok(())
 }

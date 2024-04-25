@@ -1,20 +1,21 @@
-use chrono;
 use chrono::DateTime;
+use chrono::{self, Datelike};
 use poise::serenity_prelude::{
     self as serenity, CacheHttp, CreateEmbed, EditMessage, GuildId, Message,
 };
 use serenity::model::user::User;
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct Event {
     pub creator: User,
     pub title: String,
     pub id: Uuid,
     server_id: GuildId,
-    pub date: DateTime<chrono::Local>,
-    pub participants: Vec<Participant>,
-    pub needed_roles: Vec<Role>,
-    pub needed_flavors: Vec<RoleFlavor>,
+    date: DateTime<chrono::Local>,
+    participants: Vec<Participant>,
+    needed_roles: Vec<Role>,
+    needed_flavors: Vec<RoleFlavor>,
     event_messages: Vec<Message>,
 }
 
@@ -71,28 +72,36 @@ impl Event {
 
     pub fn build_new_message(&self) -> String {
         let mut role_strings = Vec::<String>::new();
-        let x = self.needed_roles.iter().map(|x| {
-            format!(
+        for role in self.needed_roles.iter() {
+            let participant_iter = self
+                .participants
+                .iter()
+                .filter(|prt| prt.role.name == role.name);
+            role_strings.push(format!(
                 "{}: {}/{}",
-                x.name,
-                self.participants
-                    .iter()
-                    .filter(|y| y.role.name == x.name)
-                    .count(),
-                x.amount
-            )
-        });
-        for elem in x {
-            role_strings.push(elem);
+                role.name,
+                participant_iter.clone().count(),
+                role.amount
+            ));
+            for participant in participant_iter {
+                role_strings.push(format!("-> {}", participant.id.name));
+            }
         }
 
         format!(
             "\n
-        ID: {}\n
+        Date: {}.{}
+        ({} / {})
         Needed Roles:\n
         {}
         ",
-            self.id,
+            self.date.day(),
+            self.date.month(),
+            self.participants.iter().count(),
+            self.needed_roles
+                .iter()
+                .map(|role| role.amount)
+                .sum::<u32>(),
             role_strings.join("\n")
         )
     }
@@ -123,8 +132,13 @@ impl Event {
         });
         Ok(())
     }
+
+    pub fn roles(&self) -> Vec<String> {
+        self.needed_roles.iter().map(|x| x.name.clone()).collect()
+    }
 }
 
+#[derive(Clone)]
 pub struct Participant {
     pub id: User,
     pub role: Role,
