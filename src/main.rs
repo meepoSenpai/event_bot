@@ -1,9 +1,7 @@
 pub mod commands;
-pub mod message_handlers;
 pub mod structs;
 pub mod util;
 
-use crate::message_handlers::general_event_handle::handler;
 use commands::event_commands::{create_event, list_events, sign_off, sign_up};
 use poise::serenity_prelude::{self as serenity};
 use poise::{self};
@@ -19,9 +17,6 @@ async fn main() {
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![create_event(), list_events(), sign_up(), sign_off()],
-            event_handler: |ctx, event, framework, data| {
-                Box::pin(handler(ctx, event, framework, data))
-            },
             ..Default::default()
         })
         .setup(|ctx, _ready, framework| {

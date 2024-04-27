@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use crate::structs::client_structs::{
-    Command, Context, Error, EventData, Invocation, InvocationData,
-};
+use crate::structs::client_structs::{Context, Error, EventData};
 use crate::structs::event::Event;
+use crate::util::event::extract_role;
 use poise;
 use poise::serenity_prelude::{ComponentInteractionDataKind, CreateEmbed, MessageFlags};
 use poise::serenity_prelude::{
@@ -13,28 +12,68 @@ use poise::serenity_prelude::{
 /// Create an Event
 #[poise::command(slash_command, prefix_command)]
 pub async fn create_event(ctx: Context<'_>) -> Result<(), Error> {
-    let mut data = ctx.serenity_context().data.write().await;
-    let invocation_data = data.get_mut::<InvocationData>().unwrap();
-    invocation_data.insert(
-        ctx.author().id,
-        Invocation {
-            command: Command::CreateEvent,
-            source_channel: ctx.channel_id(),
-        },
-    );
+    ctx.say("Thinking...").await?.delete(ctx).await?;
     let private_cannel = ctx.author().create_dm_channel(ctx.http()).await?;
     private_cannel
         .say(ctx.http(), "How would you like to name the Event?")
         .await?;
-    ctx.say("Helping you in a bit my friend!").await?;
+    let event_name = {
+        let message_stream = private_cannel
+            .id
+            .await_reply(ctx.serenity_context().shard.clone());
+        message_stream.next().await.unwrap().content
+    };
+    let mut event = Event::new(
+        ctx.author().clone(),
+        event_name,
+        chrono::Local::now(),
+        ctx.guild_id().unwrap(),
+    );
+    match extract_role(private_cannel.id, ctx.serenity_context(), Some(())).await {
+        Some(role) => event.add_role(role),
+        None => {
+            ctx.author()
+                .dm(
+                    ctx.http(),
+                    CreateMessage::new().content("Could not create event."),
+                )
+                .await?;
+            return Ok(());
+        }
+    }
+    while let Some(role) = extract_role(private_cannel.id, ctx.serenity_context(), None).await {
+        event.add_role(role);
+    }
+    let reply = format!("\nThe following event was created by {}:", ctx.author());
+    ctx.say(reply).await?;
+    let event_message = CreateMessage::new().add_embed(
+        CreateEmbed::new()
+            .title(&event.title)
+            .description(event.build_new_message()),
+    );
+    event.add_event_message(
+        ctx.channel_id()
+            .send_message(ctx.http(), event_message)
+            .await
+            .unwrap(),
+    );
+    if let Some(event_data) = ctx
+        .serenity_context()
+        .data
+        .write()
+        .await
+        .get_mut::<EventData>()
+    {
+        event_data.push(event)
+    }
     Ok(())
 }
 
 /// List all current events for this server
 #[poise::command(slash_command, prefix_command)]
 pub async fn list_events(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("Thinking...").await?.delete(ctx).await?;
     let mut data = ctx.serenity_context().data.write().await;
-    println!("Got Event Data");
     for event in data.get_mut::<EventData>().unwrap() {
         if event.server_id() != ctx.guild_id().unwrap() {
             continue;
@@ -59,6 +98,7 @@ pub async fn list_events(ctx: Context<'_>) -> Result<(), Error> {
 /// Signup for an event
 #[poise::command(slash_command, prefix_command)]
 pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("Thinking...").await?.delete(ctx).await?;
     let events_on_server = {
         let event_data = ctx.serenity_context().data.read().await;
         event_data
@@ -66,19 +106,25 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
             .unwrap()
             .iter()
             .filter(|ev| ev.server_id() == ctx.guild_id().unwrap())
+            .filter(|ev| !ev.contains_participant(ctx.author()))
             .cloned()
             .collect::<Vec<Event>>()
     };
     if events_on_server.is_empty() {
-        ctx.say("There are no events to sign up for.").await?;
+        ctx.author()
+            .dm(
+                ctx.http(),
+                CreateMessage::new().content("There are no events to sign up for."),
+            )
+            .await?;
         return Ok(());
     }
-    ctx.say("Select an event to sign up to").await?;
     let message = ctx
-        .channel_id()
-        .send_message(
+        .author()
+        .dm(
             ctx.http(),
             CreateMessage::new()
+                .content("Select an event to sign up for.")
                 .select_menu(CreateSelectMenu::new(
                     "event_select",
                     CreateSelectMenuKind::String {
@@ -89,8 +135,7 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
                             })
                             .collect(),
                     },
-                ))
-                .flags(MessageFlags::EPHEMERAL),
+                )),
         )
         .await
         .unwrap();
@@ -110,8 +155,8 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
         .unwrap()
         .roles();
     let message = ctx
-        .channel_id()
-        .send_message(
+        .author()
+        .dm(
             ctx.http(),
             CreateMessage::new()
                 .content("Please Pick a Role for the event")
@@ -123,8 +168,7 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
                             .map(|rl| CreateSelectMenuOption::new(rl, rl))
                             .collect(),
                     },
-                ))
-                .flags(MessageFlags::EPHEMERAL),
+                )),
         )
         .await
         .unwrap();
@@ -138,12 +182,10 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
         _ => panic!("unexpected interaction data kind"),
     };
     message.delete(&ctx).await.unwrap();
-    ctx.channel_id()
-        .send_message(
+    ctx.author()
+        .dm(
             ctx.http(),
-            CreateMessage::new()
-                .content("Thank you for signing up! We'll handle the rest.")
-                .flags(MessageFlags::URGENT),
+            CreateMessage::new().content("Thank you for signing up! We'll handle the rest."),
         )
         .await
         .unwrap();
@@ -170,6 +212,7 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
 /// Sign off from an event
 #[poise::command(slash_command, prefix_command)]
 pub async fn sign_off(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("Thinking...").await?.delete(ctx).await?;
     let events_on_server = {
         let event_data = ctx.serenity_context().data.read().await;
         event_data
@@ -182,12 +225,17 @@ pub async fn sign_off(ctx: Context<'_>) -> Result<(), Error> {
             .collect::<Vec<Event>>()
     };
     if events_on_server.is_empty() {
-        ctx.say("You are not signed up for any events.").await?;
+        ctx.author()
+            .dm(
+                ctx,
+                CreateMessage::new().content("You are not signed up for any events."),
+            )
+            .await?;
         return Ok(());
     }
     let message = ctx
-        .channel_id()
-        .send_message(
+        .author()
+        .dm(
             ctx.http(),
             CreateMessage::new()
                 .content("\nPlease Pick an Event to sign off from")
@@ -230,8 +278,8 @@ pub async fn sign_off(ctx: Context<'_>) -> Result<(), Error> {
             event.update_event_messages(ctx.http()).await;
         }
     }
-    ctx.channel_id()
-        .send_message(
+    ctx.author()
+        .dm(
             ctx.http(),
             CreateMessage::new()
                 .content("You have been removed from the event.")
