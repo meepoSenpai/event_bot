@@ -4,14 +4,14 @@ use crate::structs::client_structs::{Context, Error, EventData};
 use crate::structs::event::Event;
 use crate::util::event::extract_role;
 use poise;
-use poise::serenity_prelude::{ComponentInteractionDataKind, CreateEmbed, MessageFlags};
+use poise::serenity_prelude::{ComponentInteractionDataKind, CreateChannel, CreateEmbed, MessageFlags};
 use poise::serenity_prelude::{
     CreateMessage, CreateSelectMenu, CreateSelectMenuKind, CreateSelectMenuOption,
 };
 
 /// Create an Event
 #[poise::command(slash_command, prefix_command)]
-pub async fn create_event(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn create_event(ctx: Context<'_>, create_new_channel: Option<bool>) -> Result<(), Error> {
     ctx.say("Thinking...").await?.delete(ctx).await?;
     let private_cannel = ctx.author().create_dm_channel(ctx.http()).await?;
     private_cannel
@@ -44,6 +44,10 @@ pub async fn create_event(ctx: Context<'_>) -> Result<(), Error> {
     while let Some(role) = extract_role(private_cannel.id, ctx.serenity_context(), None).await {
         event.add_role(role);
     }
+    let channel = match create_new_channel {
+        Some(_) => ctx.guild_id().unwrap().create_channel(ctx.http(), CreateChannel::new(&event.title)).await.unwrap(),
+        None => ctx.clone().guild_channel().await.unwrap()
+    };
     let reply = format!("\nThe following event was created by {}:", ctx.author());
     ctx.say(reply).await?;
     let event_message = CreateMessage::new().add_embed(
@@ -52,7 +56,7 @@ pub async fn create_event(ctx: Context<'_>) -> Result<(), Error> {
             .description(event.build_new_message()),
     );
     event.add_event_message(
-        ctx.channel_id()
+        channel.id
             .send_message(ctx.http(), event_message)
             .await
             .unwrap(),
