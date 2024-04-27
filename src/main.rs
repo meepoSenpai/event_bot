@@ -5,9 +5,8 @@ pub mod util;
 use commands::event_commands::{create_event, list_events, sign_off, sign_up};
 use poise::serenity_prelude::{self as serenity};
 use poise::{self};
-use std::collections::HashMap;
 use std::env;
-use structs::client_structs::{Data, EventData, InvocationData};
+use structs::client_structs::{Data, EventData};
 
 #[tokio::main]
 async fn main() {
@@ -33,11 +32,6 @@ async fn main() {
         .unwrap();
     {
         let client = &mut client;
-        client
-            .data
-            .write()
-            .await
-            .insert::<InvocationData>(HashMap::new());
         client.data.write().await.insert::<EventData>(Vec::new());
     }
     client.start().await.unwrap();
