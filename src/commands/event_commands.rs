@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::structs::client_structs::{Context, Error, EventData};
 use crate::structs::event::Event;
-use crate::util::event::extract_role;
+use crate::util::event::{extract_datetime, extract_role};
 use poise;
 use poise::serenity_prelude::{ComponentInteractionDataKind, CreateChannel, CreateEmbed, MessageFlags};
 use poise::serenity_prelude::{
@@ -23,10 +23,11 @@ pub async fn create_event(ctx: Context<'_>, create_new_channel: Option<bool>) ->
             .await_reply(ctx.serenity_context().shard.clone());
         message_stream.next().await.unwrap().content
     };
+    let event_date = extract_datetime(private_cannel.id, &ctx).await;
     let mut event = Event::new(
         ctx.author().clone(),
         event_name,
-        chrono::Local::now(),
+        event_date,
         ctx.guild_id().unwrap(),
     );
     match extract_role(private_cannel.id, ctx.serenity_context(), Some(())).await {
@@ -46,7 +47,7 @@ pub async fn create_event(ctx: Context<'_>, create_new_channel: Option<bool>) ->
     }
     let channel = match create_new_channel {
         Some(_) => ctx.guild_id().unwrap().create_channel(ctx.http(), CreateChannel::new(&event.title)).await.unwrap(),
-        None => ctx.clone().guild_channel().await.unwrap()
+        None => ctx.guild_channel().await.unwrap()
     };
     let reply = format!("\nThe following event was created by {}:", ctx.author());
     ctx.say(reply).await?;

@@ -12,7 +12,7 @@ pub struct Event {
     pub title: String,
     pub id: Uuid,
     server_id: GuildId,
-    date: DateTime<chrono::Local>,
+    date: DateTime<chrono::Utc>,
     participants: Vec<Participant>,
     needed_roles: Vec<Role>,
     needed_flavors: Vec<RoleFlavor>,
@@ -23,7 +23,7 @@ impl Event {
     pub fn new(
         creator: User,
         title: String,
-        date: DateTime<chrono::Local>,
+        date: DateTime<chrono::Utc>,
         server_id: GuildId,
     ) -> Event {
         Event {
@@ -90,13 +90,12 @@ impl Event {
 
         format!(
             "\n
-        Date: {}.{}
+        Date: <t:{}>
         ({} / {})
         Needed Roles:\n
         {}
         ",
-            self.date.day(),
-            self.date.month(),
+            self.date.timestamp(),
             self.participants.len(),
             self.needed_roles
                 .iter()
