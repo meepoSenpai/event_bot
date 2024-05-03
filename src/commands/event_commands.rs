@@ -5,7 +5,7 @@ use crate::structs::event::Event;
 use crate::util::event::{extract_datetime, extract_flavor, extract_role};
 use poise;
 use poise::serenity_prelude::{
-    Color, ComponentInteractionDataKind, CreateChannel, CreateEmbed, MessageFlags,
+    Color, ComponentInteractionDataKind, CreateChannel, CreateEmbed, MessageFlags, User,
 };
 use poise::serenity_prelude::{
     CreateMessage, CreateSelectMenu, CreateSelectMenuKind, CreateSelectMenuOption,
@@ -119,15 +119,24 @@ pub async fn list_events(ctx: Context<'_>) -> Result<(), Error> {
 
 /// Signup for an event
 #[poise::command(slash_command, prefix_command)]
-pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn sign_up(ctx: Context<'_>, user: Option<User>) -> Result<(), Error> {
     ctx.say("Thinking...").await?.delete(ctx).await?;
+    let user = match user {
+        Some(user) => user,
+        None => ctx.author().clone(),
+    };
     let events_on_server = {
         let event_data = ctx.serenity_context().data.read().await;
         event_data
             .get::<EventData>()
             .unwrap()
             .iter()
-            .filter(|ev| ev.server_id() == ctx.guild_id().unwrap())
+            .filter(|ev| {
+                if user.id == ctx.author().id {
+                    return ev.server_id() == ctx.guild_id().unwrap() && ev.creator.id == user.id;
+                }
+                ev.server_id() == ctx.guild_id().unwrap()
+            })
             .filter(|ev| !ev.contains_participant(ctx.author()))
             .cloned()
             .collect::<Vec<Event>>()
@@ -175,16 +184,6 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
         .iter()
         .find(|ev| ev.id.to_string() == event_selection)
         .unwrap();
-    let possible_roles = events_on_server
-        .iter()
-        .find(|ev| ev.id.to_string() == event_selection)
-        .unwrap()
-        .roles();
-    let possible_flavors = events_on_server
-        .iter()
-        .find(|ev| ev.id.to_string() == event_selection)
-        .unwrap()
-        .flavors();
     let message = ctx
         .author()
         .dm(
@@ -194,9 +193,9 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
                 .select_menu(CreateSelectMenu::new(
                     "role_select",
                     CreateSelectMenuKind::String {
-                        options: possible_roles
+                        options: selected_event
+                            .possible_roles()
                             .iter()
-                            .filter(|rl| !selected_event.is_role_full(rl))
                             .map(|rl| CreateSelectMenuOption::new(rl, rl))
                             .collect(),
                     },
@@ -223,10 +222,13 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
                 .select_menu(CreateSelectMenu::new(
                     "role_select",
                     CreateSelectMenuKind::String {
-                        options: possible_flavors
+                        options: selected_event
+                            .possible_flavors()
                             .iter()
-                            .filter(|fl| !selected_event.is_flavor_full(fl))
-                            .map(|fl| CreateSelectMenuOption::new(fl, fl))
+                            .map(|fl| match fl.as_str() {
+                                "None" => CreateSelectMenuOption::new(fl, ""),
+                                _ => CreateSelectMenuOption::new(fl, fl),
+                            })
                             .collect(),
                     },
                 )),
@@ -262,10 +264,17 @@ pub async fn sign_up(ctx: Context<'_>) -> Result<(), Error> {
             .find(|ev| ev.id.to_string() == event_selection)
         {
             event
-                .add_participant(ctx.author().clone(), role_selection, flavor_selection)
+                .add_participant(user.clone(), role_selection, flavor_selection)
                 .unwrap();
             event.update_event_messages(ctx.http()).await;
         }
+    }
+    if user.id != ctx.author().id {
+        user.dm(
+            ctx.http(),
+            CreateMessage::new().content("You have been signed up for an event."),
+        )
+        .await?;
     }
     Ok(())
 }

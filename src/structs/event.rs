@@ -227,6 +227,26 @@ impl Event {
             .map(|x| x.flavor.clone())
             .collect()
     }
+
+    pub fn possible_roles(&self) -> Vec<String> {
+        self.needed_roles
+            .iter()
+            .filter(|x| !self.is_role_full(&x.name))
+            .map(|x| x.name.clone())
+            .collect()
+    }
+
+    pub fn possible_flavors(&self) -> Vec<String> {
+        let mut possible_flavors: Vec<String> = self
+            .needed_flavors
+            .iter()
+            .filter(|x| !self.is_flavor_full(&x.flavor))
+            .cloned()
+            .map(|x| x.flavor.clone())
+            .collect();
+        possible_flavors.push("None".to_string());
+        possible_flavors
+    }
 }
 
 #[derive(Clone)]
