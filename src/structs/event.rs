@@ -1,5 +1,5 @@
 use chrono::DateTime;
-use chrono::{self, Datelike};
+use chrono::{self};
 use poise::serenity_prelude::{
     self as serenity, CacheHttp, CreateEmbed, EditMessage, GuildId, Message,
 };
@@ -51,6 +51,10 @@ impl Event {
         self.needed_roles.push(role);
     }
 
+    pub fn add_flavor(&mut self, flavor: RoleFlavor) {
+        self.needed_flavors.push(flavor);
+    }
+
     pub fn add_event_message(&mut self, new_message: Message) {
         self.event_messages.push(new_message);
     }
@@ -84,7 +88,18 @@ impl Event {
                 role.amount
             ));
             for participant in participant_iter {
-                role_strings.push(format!("-> {}", participant.id.name));
+                role_strings.push(format!(
+                    "→ {}{}",
+                    &participant
+                        .flavor
+                        .clone()
+                        .unwrap_or(RoleFlavor {
+                            flavor: "".to_string(),
+                            amount: 0
+                        })
+                        .flavor,
+                    participant.id
+                ));
             }
         }
 
@@ -124,12 +139,68 @@ impl Event {
                 None
             }
         };
+        if self.is_full() {
+            return Err("Event is full.");
+        }
+        if self.is_role_full(&user_role.name) {
+            return Err("Role is full.");
+        }
+        if let Some(flv) = &user_flavor {
+            if self.is_flavor_full(&flv.flavor) {
+                return Err("Flavor is full.");
+            }
+        }
         self.participants.push(Participant {
             id: user,
             role: user_role,
             flavor: user_flavor,
         });
         Ok(())
+    }
+
+    fn is_full(&self) -> bool {
+        self.participants.len() == self.needed_roles.iter().map(|x| x.amount).sum::<u32>() as usize
+    }
+
+    pub fn is_role_full(&self, role: &String) -> bool {
+        self.participants
+            .iter()
+            .filter(|x| x.role.name == *role)
+            .count() as u32
+            >= self
+                .needed_roles
+                .iter()
+                .find(|x| x.name == *role)
+                .unwrap()
+                .amount
+    }
+
+    pub fn is_flavor_full(&self, flavor: &String) -> bool {
+        let flavor = self
+            .needed_flavors
+            .iter()
+            .find(|x| x.flavor == *flavor)
+            .cloned()
+            .unwrap_or(RoleFlavor {
+                flavor: "".to_string(),
+                amount: 0,
+            });
+        flavor.amount == 0
+            || self
+                .participants
+                .iter()
+                .filter(|x| {
+                    x.flavor
+                        .clone()
+                        .unwrap_or(RoleFlavor {
+                            flavor: "".to_string(),
+                            amount: 0,
+                        })
+                        .flavor
+                        == flavor.flavor
+                })
+                .count() as u32
+                >= flavor.amount
     }
 
     pub fn remove_participant(&mut self, user: User) -> Result<(), &str> {
@@ -148,6 +219,13 @@ impl Event {
 
     pub fn roles(&self) -> Vec<String> {
         self.needed_roles.iter().map(|x| x.name.clone()).collect()
+    }
+
+    pub fn flavors(&self) -> Vec<String> {
+        self.needed_flavors
+            .iter()
+            .map(|x| x.flavor.clone())
+            .collect()
     }
 }
 
